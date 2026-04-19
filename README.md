@@ -1,23 +1,6 @@
-# Name Pronouncer
+# Say My Name
 
-Tiny site: type a name, hear it pronounced (via Forvo).
+<img width="438" height="228" alt="image" src="https://github.com/user-attachments/assets/9fda8729-b86a-48d6-b42d-ed0bd57d5bd2" />
 
-## Setup
+Type a name, hear it pronounced (via Forvo and ElevenLabs TTS). Won first at HackMIT's Campus Preview Weekend Hackathon (and two AirPods 4). 
 
-1. Get a Forvo API key: https://api.forvo.com/
-2. (Optional) Get an ElevenLabs API key for the TTS fallback: https://elevenlabs.io/
-3. Install + run:
-
-```sh
-npm install
-FORVO_KEY=your_forvo_key ELEVENLABS_KEY=your_eleven_key npm start
-```
-
-You can also set `ELEVENLABS_VOICE` to override the default voice id.
-
-3. Open http://localhost:3000
-
-## How it works
-
-- `public/index.html` — single-page UI.
-- `server.js` — serves the page and proxies `/api/pronounce?name=…` to Forvo, so your API key stays on the server.
