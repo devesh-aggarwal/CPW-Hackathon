@@ -194,9 +194,6 @@
     </main>
 
     <script type="module">
-      import Tesseract from "https://esm.sh/tesseract.js@5";
-      import { heicTo, isHeic } from "https://esm.sh/heic-to@1";
-
       const form = document.getElementById("f");
       const input = document.getElementById("name");
       const out = document.getElementById("out");
@@ -302,59 +299,25 @@
         out.innerHTML = `<p class="loading">Reading nametag…</p>`;
         btn.disabled = true;
         try {
-          let imageSource = file;
-          const looksHeic =
-            /\.hei[cf]$/i.test(file.name) ||
-            /image\/hei[cf]/i.test(file.type) ||
-            (await isHeic(file).catch(() => false));
-          if (looksHeic) {
-            out.innerHTML = `<p class="loading">Converting HEIC image…</p>`;
-            imageSource = await heicTo({ blob: file, type: "image/jpeg", quality: 0.9 });
-            out.innerHTML = `<p class="loading">Reading nametag…</p>`;
-          }
-          const { data } = await Tesseract.recognize(imageSource, "eng");
-          const raw = (data.text || "").trim();
-          const name = extractName(raw);
-          if (!name) {
-            out.innerHTML = `<p class="empty">Couldn't read a name from that image.${
-              raw ? ` <br><span class="item-sub">Detected text: ${escapeHtml(raw)}</span>` : ""
-            }</p>`;
+          const fd = new FormData();
+          fd.append("image", file);
+          const r = await fetch("/api/scan", { method: "POST", body: fd });
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || `http ${r.status}`);
+          if (!data.name) {
+            out.innerHTML = `<p class="empty">Couldn't read a name from that image.</p>`;
             btn.disabled = false;
             return;
           }
-          pronounce(name);
+          pronounce(data.name);
         } catch (err) {
-          const msg = err?.message || err?.toString?.() || JSON.stringify(err) || "unknown error";
-          out.innerHTML = `<p class="error">OCR failed: ${escapeHtml(msg)}</p>`;
+          const msg = err?.message || err?.toString?.() || "unknown error";
+          out.innerHTML = `<p class="error">Scan failed: ${escapeHtml(msg)}</p>`;
           btn.disabled = false;
         } finally {
           photoInput.value = "";
         }
       });
-
-      // Pick the most name-like line from OCR output: skip common nametag labels,
-      // prefer lines of 1–4 alphabetic words starting with capitals.
-      function extractName(text) {
-        const lines = text
-          .split(/\n+/)
-          .map((l) => l.trim())
-          .filter(Boolean);
-        const skip = /^(hello|hi|my name is|name|i am|i'm)$/i;
-        const candidates = lines
-          .map((l) => l.replace(/^(hello[,!]?\s*my name is|my name is|hello[,!]?\s*i'?m|i'?m|hello[,!]?|name[:\-]?)/i, "").trim())
-          .filter((l) => l && !skip.test(l))
-          .filter((l) => /^[A-Za-zÀ-ÿ'’\-\.\s]{2,}$/.test(l))
-          .sort((a, b) => {
-            const score = (s) => {
-              const words = s.split(/\s+/);
-              if (words.length < 1 || words.length > 4) return -10;
-              const capWords = words.filter((w) => /^[A-ZÀ-Ý]/.test(w)).length;
-              return capWords - Math.abs(words.length - 2);
-            };
-            return score(b) - score(a);
-          });
-        return candidates[0] || "";
-      }
     </script>
   </body>
 </html>

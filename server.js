@@ -1,4 +1,7 @@
 import express from "express";
+import multer from "multer";
+import heicConvert from "heic-convert";
+import Anthropic from "@anthropic-ai/sdk";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,6 +12,7 @@ const PORT = process.env.PORT || 3000;
 const FORVO_KEY = process.env.FORVO_KEY;
 const ELEVENLABS_KEY = process.env.ELEVENLABS_KEY;
 const ELEVENLABS_VOICE = process.env.ELEVENLABS_VOICE || "21m00Tcm4TlvDq8ikWAM";
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
 if (!FORVO_KEY) {
   console.warn("FORVO_KEY env var not set — /api/pronounce will return 500.");
@@ -16,6 +20,12 @@ if (!FORVO_KEY) {
 if (!ELEVENLABS_KEY) {
   console.warn("ELEVENLABS_KEY env var not set — TTS fallback disabled.");
 }
+if (!ANTHROPIC_API_KEY) {
+  console.warn("ANTHROPIC_API_KEY env var not set — /api/scan will return 500.");
+}
+
+const anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -84,6 +94,55 @@ app.get("/api/tts", async (req, res) => {
     res.send(buf);
   } catch (e) {
     res.status(500).json({ error: String(e) });
+  }
+});
+
+app.post("/api/scan", upload.single("image"), async (req, res) => {
+  if (!anthropic) return res.status(500).json({ error: "server missing ANTHROPIC_API_KEY" });
+  if (!req.file) return res.status(400).json({ error: "missing image" });
+
+  try {
+    let buffer = req.file.buffer;
+    let mediaType = req.file.mimetype || "image/jpeg";
+    const name = (req.file.originalname || "").toLowerCase();
+
+    if (mediaType.includes("heic") || mediaType.includes("heif") || name.endsWith(".heic") || name.endsWith(".heif")) {
+      const jpeg = await heicConvert({ buffer, format: "JPEG", quality: 0.9 });
+      buffer = Buffer.from(jpeg);
+      mediaType = "image/jpeg";
+    }
+
+    if (!/^image\/(jpeg|png|gif|webp)$/.test(mediaType)) {
+      return res.status(400).json({ error: `unsupported image type: ${mediaType}` });
+    }
+
+    const msg = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 64,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: mediaType, data: buffer.toString("base64") },
+            },
+            {
+              type: "text",
+              text: 'This is a photo of a nametag or similar. Extract only the person\'s name — no titles, no labels like "HELLO my name is", no extra commentary. If no name is visible, reply exactly "NONE". Respond with just the name on one line.',
+            },
+          ],
+        },
+      ],
+    });
+
+    const text = msg.content.find((c) => c.type === "text")?.text?.trim() || "";
+    if (!text || text.toUpperCase() === "NONE") {
+      return res.json({ name: null });
+    }
+    res.json({ name: text.split("\n")[0].trim() });
+  } catch (e) {
+    res.status(500).json({ error: e?.message || String(e) });
   }
 });
 
